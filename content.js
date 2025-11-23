@@ -8,6 +8,15 @@ const GEO_LABEL_CLASS = 'geo-filter-label';
 const processingQueue = new Set();
 const processedUsers = new Set();
 
+// Rate limiting configuration
+const RATE_LIMIT_DELAY = 100; // ms between API calls
+const RATE_LIMIT_BATCH_SIZE = 5; // max concurrent requests
+const RATE_LIMIT_COOLDOWN = 5000; // ms to wait after 429 error
+let lastRequestTime = 0;
+let activeRequests = 0;
+let rateLimitCooldown = false;
+let pendingQueue = [];
+
 // Initialize the extension
 function init() {
   console.log('[Geo Filter] Extension initialized');
@@ -81,30 +90,24 @@ function extractUsername(element) {
 
 // Process a single user element
 async function processUserElement(element) {
-  // Skip if already processed
-  if (element.hasAttribute(PROCESSED_ATTRIBUTE)) {
-    return;
-  }
-  
   const username = extractUsername(element);
   if (!username) {
     return;
   }
   
-  // Mark as processed to avoid duplicate processing
-  element.setAttribute(PROCESSED_ATTRIBUTE, 'true');
+  // Mark element as seen
+  if (!element.hasAttribute(PROCESSED_ATTRIBUTE)) {
+    element.setAttribute(PROCESSED_ATTRIBUTE, 'true');
+  }
   
-  // Skip if already in queue or processed
+  // If already in queue or processed, try to add label from cache
   if (processingQueue.has(username) || processedUsers.has(username)) {
-    // Still add the flag if we have it cached
     addGeoLabel(element, username);
     return;
   }
   
-  processingQueue.add(username);
-  
+  // Check cache first
   try {
-    // Check cache first via background script
     const cached = await chrome.runtime.sendMessage({
       type: 'GET_CACHED_GEO',
       username: username
@@ -114,11 +117,58 @@ async function processUserElement(element) {
       processedUsers.add(username);
       addGeoLabel(element, username, cached);
       console.log(`[Geo Filter] Processed ${username}: ${cached} (cached)`);
-      processingQueue.delete(username);
       return;
     }
-    
-    // Fetch from API (runs in page context with auth)
+  } catch (error) {
+    console.error(`[Geo Filter] Error checking cache for ${username}:`, error);
+  }
+  
+  // Not in cache - add to pending queue for rate-limited fetching
+  if (!pendingQueue.find(item => item.username === username)) {
+    pendingQueue.push({ username, element });
+    processQueue();
+  }
+}
+
+// Process pending queue with rate limiting
+async function processQueue() {
+  // If in cooldown, wait and retry
+  if (rateLimitCooldown) {
+    setTimeout(processQueue, 1000);
+    return;
+  }
+  
+  // Check if we can make more requests
+  if (activeRequests >= RATE_LIMIT_BATCH_SIZE || pendingQueue.length === 0) {
+    return;
+  }
+  
+  // Rate limit: ensure minimum delay between requests
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < RATE_LIMIT_DELAY) {
+    setTimeout(processQueue, RATE_LIMIT_DELAY - timeSinceLastRequest);
+    return;
+  }
+  
+  // Get next item from queue
+  const item = pendingQueue.shift();
+  if (!item) return;
+  
+  const { username, element } = item;
+  
+  // Skip if already processing or processed
+  if (processingQueue.has(username) || processedUsers.has(username)) {
+    processQueue(); // Continue with next item
+    return;
+  }
+  
+  processingQueue.add(username);
+  activeRequests++;
+  lastRequestTime = Date.now();
+  
+  try {
+    // Fetch from API with rate limiting
     const geoData = await fetchUserGeo(username);
     
     // Cache the result
@@ -129,15 +179,50 @@ async function processUserElement(element) {
     });
     
     processedUsers.add(username);
-    addGeoLabel(element, username, geoData);
+    
+    // Add label to ALL elements with this username
+    addGeoLabelToAllElements(username, geoData);
+    
     console.log(`[Geo Filter] Processed ${username}: ${geoData}`);
     
   } catch (error) {
-    console.error(`[Geo Filter] Error processing ${username}:`, error);
-    addGeoLabel(element, username, 'N/A');
+    if (error.message.includes('RATE_LIMIT')) {
+      console.warn(`[Geo Filter] Rate limit hit, cooling down for ${RATE_LIMIT_COOLDOWN}ms`);
+      rateLimitCooldown = true;
+      
+      // Put item back in queue
+      pendingQueue.unshift(item);
+      
+      // Schedule cooldown end
+      setTimeout(() => {
+        rateLimitCooldown = false;
+        processQueue();
+      }, RATE_LIMIT_COOLDOWN);
+    } else {
+      console.error(`[Geo Filter] Error processing ${username}:`, error);
+      // Add N/A label to all elements with this username
+      addGeoLabelToAllElements(username, 'N/A');
+    }
   } finally {
     processingQueue.delete(username);
+    activeRequests--;
+    
+    // Process next item if not in cooldown
+    if (!rateLimitCooldown && pendingQueue.length > 0) {
+      setTimeout(processQueue, RATE_LIMIT_DELAY);
+    }
   }
+}
+
+// Add geo label to all elements with the given username
+function addGeoLabelToAllElements(username, geoData) {
+  const userElements = findUserElements();
+  userElements.forEach(element => {
+    const elementUsername = extractUsername(element);
+    if (elementUsername === username) {
+      addGeoLabel(element, username, geoData);
+    }
+  });
 }
 
 // Extract authorization token from page's JavaScript
@@ -154,8 +239,9 @@ function getAuthToken() {
     }
   }
   
-  // If we can't find the token, throw an error
-  throw new Error('Unable to extract authorization token from page. X.com may have changed their API structure.');
+  // Fallback: use the known public token (may need updating if X changes it)
+  // This is X.com's public web API token - it's publicly available in their web app
+  return 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 }
 
 // Fetch user geography from X.com API
