@@ -157,7 +157,50 @@ function displayFilteredCountries() {
 // Update statistics
 function updateStats(geoCache, filteredCount) {
   const cachedCount = Object.keys(geoCache).length;
-  document.getElementById('cached-count').textContent = cachedCount;
+  const cachedCountElement = document.getElementById('cached-count');
+  cachedCountElement.textContent = cachedCount;
+  
+  // Generate top 5 countries tooltip
+  if (cachedCount > 0) {
+    const countryCounts = {};
+    
+    // Count users per country
+    Object.values(geoCache).forEach(country => {
+      if (country && country !== 'N/A') {
+        countryCounts[country] = (countryCounts[country] || 0) + 1;
+      }
+    });
+    
+    // Sort by count and get top 5
+    const topCountries = Object.entries(countryCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    
+    // Create tooltip HTML
+    if (topCountries.length > 0) {
+      const tooltipHTML = `
+        <div class="stat-tooltip">
+          <div class="stat-tooltip-title">Top Countries</div>
+          ${topCountries.map(([country, count]) => `
+            <div class="stat-tooltip-item">
+              <span class="stat-tooltip-country">${getCountryFlag(country)} ${country}</span>
+              <span class="stat-tooltip-count">${count}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      
+      // Remove existing tooltip if any
+      const existingTooltip = cachedCountElement.querySelector('.stat-tooltip');
+      if (existingTooltip) {
+        existingTooltip.remove();
+      }
+      
+      // Add new tooltip
+      cachedCountElement.insertAdjacentHTML('beforeend', tooltipHTML);
+    }
+  }
+  
   document.getElementById('filtered-count').textContent = filteredCount;
 }
 

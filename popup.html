@@ -166,6 +166,57 @@
       font-size: 20px;
       font-weight: 700;
       color: #e7e9ea;
+      cursor: help;
+      position: relative;
+    }
+    
+    .stat-tooltip {
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-bottom: 8px;
+      padding: 12px;
+      background: #1e2732;
+      border: 1px solid #2f3336;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 400;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 1000;
+      min-width: 200px;
+    }
+    
+    .stat-value:hover .stat-tooltip {
+      opacity: 1;
+    }
+    
+    .stat-tooltip-title {
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #e7e9ea;
+      border-bottom: 1px solid #2f3336;
+      padding-bottom: 4px;
+    }
+    
+    .stat-tooltip-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      gap: 12px;
+    }
+    
+    .stat-tooltip-country {
+      color: #71767b;
+    }
+    
+    .stat-tooltip-count {
+      color: #1d9bf0;
+      font-weight: 600;
     }
     
     .clear-cache-btn {
