@@ -129,7 +129,7 @@
         if (response.ok) {
           const data = await response.json();
           location = data?.data?.user_result_by_screen_name?.result?.about_profile?.account_based_in || null;
-          console.log(`[Geo Filter Page Script] Got location for ${username}: ${location}`);
+          // console.log(`[Geo Filter Page Script] Got location for ${username}: ${location}`);
         } else {
           success = false;
           if (response.status === 429) {

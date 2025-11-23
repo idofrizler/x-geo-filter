@@ -88,7 +88,7 @@ function findUserElements() {
   const seenSpans = new Set(); // Prevent duplicates
   
   // Strategy 1: Find all @username spans in User-Name containers
-  // This covers: tweets, replies, quoted tweets, profile pages
+  // This covers: tweets, replies, quoted tweets
   const userNameContainers = document.querySelectorAll('[data-testid="User-Name"]');
   userNameContainers.forEach(container => {
     // Find all spans with @username
@@ -105,23 +105,38 @@ function findUserElements() {
     });
   });
   
-  // Strategy 2: Fallback - Find @username spans in links
-  // This catches any that might be outside User-Name containers
-  const links = document.querySelectorAll('a[role="link"][href^="/"]');
-  links.forEach(link => {
-    const href = link.getAttribute('href');
-    // Match pattern: /<username> (but not /i/, /home, etc.)
-    if (href && href.match(/^\/[a-zA-Z0-9_]+$/)) {
-      const spans = link.querySelectorAll('span');
-      spans.forEach(span => {
-        const text = span.textContent;
-        if (text && text.match(/^@[a-zA-Z0-9_]+$/)) {
-          if (!seenSpans.has(span)) {
-            seenSpans.add(span);
-            elements.push(span);
-          }
+  // Strategy 2: Profile page - Find @username in UserName testid containers
+  const userNameTestIds = document.querySelectorAll('[data-testid="UserName"]');
+  userNameTestIds.forEach(container => {
+    const spans = container.querySelectorAll('span');
+    spans.forEach(span => {
+      const text = span.textContent;
+      if (text && text.match(/^@[a-zA-Z0-9_]+$/)) {
+        if (!seenSpans.has(span)) {
+          seenSpans.add(span);
+          elements.push(span);
         }
-      });
+      }
+    });
+  });
+  
+  // Strategy 3: Find all spans with @username text directly
+  // This catches profile pages and other edge cases
+  const allSpans = document.querySelectorAll('span');
+  allSpans.forEach(span => {
+    const text = span.textContent;
+    // Only match if it's EXACTLY @username (no extra text)
+    if (text && text.match(/^@[a-zA-Z0-9_]+$/) && text.length > 1) {
+      // Make sure it's in a reasonable context (has color style suggesting it's a handle)
+      const style = window.getComputedStyle(span.parentElement || span);
+      const color = style.color;
+      // X.com uses gray colors for handles: rgb(113, 118, 123)
+      if (color && (color.includes('113') || color.includes('118') || color.includes('123'))) {
+        if (!seenSpans.has(span)) {
+          seenSpans.add(span);
+          elements.push(span);
+        }
+      }
     }
   });
   
