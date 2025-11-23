@@ -258,23 +258,13 @@ async function processQueue() {
     
   } catch (error) {
     if (error.message.includes('RATE_LIMIT')) {
-      console.log(`[Geo Filter] Rate limit reached, cooling down for ${RATE_LIMIT_COOLDOWN / 1000}s`);
-      rateLimitCooldown = true;
-      
-      // Put item back in queue
-      pendingQueue.unshift(item);
-      
-      // Schedule cooldown end
-      setTimeout(() => {
-        rateLimitCooldown = false;
-        console.log('[Geo Filter] Cooldown complete, resuming requests');
-        processQueue();
-      }, RATE_LIMIT_COOLDOWN);
+      console.log(`[Geo Filter] Rate limit hit for ${username}, skipping`);
+      // Don't retry, just mark as processed with no geo data
+      processedUsers.add(username);
     } else {
       console.error(`[Geo Filter] Error processing ${username}:`, error);
-      // Add N/A label to all elements with this username
-      addGeoLabelToAllElements(username, 'N/A');
     }
+    // Don't add N/A labels - just skip this user
   } finally {
     processingQueue.delete(username);
     activeRequests--;
