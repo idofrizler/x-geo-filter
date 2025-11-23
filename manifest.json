@@ -4,12 +4,22 @@
   "version": "1.0.0",
   "description": "Display country flags for X.com users based on their geography",
   "permissions": [
-    "storage"
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*"
   ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "X Geography Filter"
+  },
   "background": {
     "service_worker": "background.js"
   },
@@ -23,7 +33,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["pageScript.js"],
+      "resources": ["pageScript.js", "utils/iso-countries.js"],
       "matches": ["https://x.com/*", "https://twitter.com/*"]
     }
   ],

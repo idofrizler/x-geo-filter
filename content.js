@@ -3,6 +3,7 @@
 
 const PROCESSED_ATTRIBUTE = 'data-geo-processed';
 const GEO_LABEL_CLASS = 'geo-filter-label';
+const FILTERED_POST_CLASS = 'geo-filter-hidden';
 const processingQueue = new Set();
 const processedUsers = new Set();
 
@@ -19,6 +20,10 @@ let pendingQueue = [];
 let injectedScriptReady = false;
 let pendingRequests = new Map(); // requestId -> { resolve, reject, username }
 let requestIdCounter = 0;
+
+// Filtering state
+let filteredCountries = [];
+let filteredPostsCount = 0;
 
 // Inject the page script
 function injectPageScript() {
@@ -62,17 +67,41 @@ window.addEventListener('message', (event) => {
 });
 
 // Initialize the extension
-function init() {
+async function init() {
   console.log('[Geo Filter] Extension initialized');
+  
+  // Load filtered countries from storage
+  const result = await chrome.storage.local.get(['filteredCountries']);
+  filteredCountries = result.filteredCountries || [];
   
   // Inject page script
   injectPageScript();
+  
+  // Set up message listener for popup communication
+  setupMessageListener();
   
   // Wait for page script to load, then process
   setTimeout(() => {
     processExistingUsers();
     setupMutationObserver();
+    applyFiltersToPage();
   }, 1000);
+}
+
+// Set up message listener for popup communication
+function setupMessageListener() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'FILTERS_UPDATED') {
+      filteredCountries = message.filteredCountries || [];
+      applyFiltersToPage();
+      sendResponse({ success: true });
+    } else if (message.type === 'CACHE_CLEARED') {
+      // Reload the page to refresh
+      location.reload();
+      sendResponse({ success: true });
+    }
+    return true;
+  });
 }
 
 // Process all visible users on the page
@@ -338,6 +367,9 @@ function addGeoLabel(element, username, geoData = null) {
     if (geoData !== null) {
       const displayText = getCountryFlag(geoData);
       existingLabel.textContent = displayText;
+      
+      // Check if this user should be filtered
+      applyFilterToUser(username, geoData);
     }
     return;
   }
@@ -370,6 +402,96 @@ function addGeoLabel(element, username, geoData = null) {
   if (element.parentElement) {
     element.parentElement.insertBefore(label, element.nextSibling);
   }
+  
+  // Check if this user should be filtered
+  applyFilterToUser(username, geoData);
+}
+
+// Apply filter to a specific user's posts
+function applyFilterToUser(username, geoData) {
+  if (!filteredCountries.includes(geoData)) return;
+  
+  // Find all articles/tweets from this user
+  const articles = document.querySelectorAll('article');
+  articles.forEach(article => {
+    // Check if this article contains this username
+    const userLinks = article.querySelectorAll('a[href^="/"]');
+    let isFromFilteredUser = false;
+    
+    userLinks.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href && href.match(/^\/[a-zA-Z0-9_]+$/)) {
+        const linkUsername = href.substring(1); // Remove leading /
+        if (linkUsername === username) {
+          isFromFilteredUser = true;
+        }
+      }
+    });
+    
+    if (isFromFilteredUser) {
+      article.style.display = 'none';
+      article.classList.add(FILTERED_POST_CLASS);
+      filteredPostsCount++;
+    }
+  });
+  
+  // Update filtered count in storage for popup
+  chrome.storage.local.set({ filteredPostsCount });
+}
+
+// Apply filters to entire page
+async function applyFiltersToPage() {
+  if (filteredCountries.length === 0) {
+    // Remove all filters
+    document.querySelectorAll(`.${FILTERED_POST_CLASS}`).forEach(article => {
+      article.style.display = '';
+      article.classList.remove(FILTERED_POST_CLASS);
+    });
+    filteredPostsCount = 0;
+    chrome.storage.local.set({ filteredPostsCount: 0 });
+    return;
+  }
+  
+  // Reset count
+  filteredPostsCount = 0;
+  
+  // Get cache to check all users
+  const result = await chrome.runtime.sendMessage({ type: 'GET_ALL_CACHED_GEO' });
+  const geoCache = result || {};
+  
+  // Find all articles
+  const articles = document.querySelectorAll('article');
+  articles.forEach(article => {
+    // Remove previous filter first
+    article.style.display = '';
+    article.classList.remove(FILTERED_POST_CLASS);
+    
+    // Check if article is from a filtered country
+    const userLinks = article.querySelectorAll('a[href^="/"]');
+    let shouldFilter = false;
+    
+    userLinks.forEach(link => {
+      const href = link.getAttribute('href');
+      if (href && href.match(/^\/[a-zA-Z0-9_]+$/)) {
+        const username = href.substring(1);
+        const geoData = geoCache[username];
+        
+        if (geoData && filteredCountries.includes(geoData)) {
+          shouldFilter = true;
+        }
+      }
+    });
+    
+    if (shouldFilter) {
+      article.style.display = 'none';
+      article.classList.add(FILTERED_POST_CLASS);
+      filteredPostsCount++;
+    }
+  });
+  
+  // Update filtered count in storage for popup
+  chrome.storage.local.set({ filteredPostsCount });
+  console.log(`[Geo Filter] Filtered ${filteredPostsCount} posts`);
 }
 
 // Set up MutationObserver to watch for new content

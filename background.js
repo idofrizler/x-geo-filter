@@ -13,6 +13,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: true });
     });
     return true;
+  } else if (request.type === 'GET_ALL_CACHED_GEO') {
+    getAllCachedGeo().then(sendResponse);
+    return true;
   }
 });
 
@@ -26,4 +29,15 @@ async function cacheGeo(username, geoData) {
   const key = CACHE_KEY_PREFIX + username.toLowerCase();
   await chrome.storage.local.set({ [key]: geoData });
   console.log(`[Geo Filter] Cached geo for ${username}:`, geoData);
+  
+  // Also update the geoCache object for quick lookup
+  const result = await chrome.storage.local.get('geoCache');
+  const geoCache = result.geoCache || {};
+  geoCache[username.toLowerCase()] = geoData;
+  await chrome.storage.local.set({ geoCache });
+}
+
+async function getAllCachedGeo() {
+  const result = await chrome.storage.local.get('geoCache');
+  return result.geoCache || {};
 }

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>X Geography Filter</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      width: 400px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #15202b;
+      color: #e7e9ea;
+      padding: 0;
+    }
+    
+    .header {
+      background: #1d9bf0;
+      padding: 16px 20px;
+      border-bottom: 1px solid #2f3336;
+    }
+    
+    .header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: white;
+    }
+    
+    .content {
+      padding: 20px;
+    }
+    
+    .section {
+      margin-bottom: 24px;
+    }
+    
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: #e7e9ea;
+    }
+    
+    .search-box {
+      position: relative;
+      margin-bottom: 12px;
+    }
+    
+    #country-search {
+      width: 100%;
+      padding: 12px;
+      background: #273340;
+      border: 1px solid #2f3336;
+      border-radius: 8px;
+      color: #e7e9ea;
+      font-size: 14px;
+      outline: none;
+    }
+    
+    #country-search:focus {
+      border-color: #1d9bf0;
+      background: #1e2732;
+    }
+    
+    #country-search::placeholder {
+      color: #71767b;
+    }
+    
+    .suggestions {
+      max-height: 200px;
+      overflow-y: auto;
+      background: #273340;
+      border: 1px solid #2f3336;
+      border-radius: 8px;
+      margin-top: 4px;
+      display: none;
+    }
+    
+    .suggestions.active {
+      display: block;
+    }
+    
+    .suggestion-item {
+      padding: 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #2f3336;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .suggestion-item:last-child {
+      border-bottom: none;
+    }
+    
+    .suggestion-item:hover {
+      background: #1e2732;
+    }
+    
+    .suggestion-flag {
+      font-size: 20px;
+    }
+    
+    .filtered-countries {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 40px;
+      padding: 8px;
+      background: #273340;
+      border: 1px solid #2f3336;
+      border-radius: 8px;
+    }
+    
+    .filtered-countries.empty::before {
+      content: 'No countries filtered';
+      color: #71767b;
+      font-size: 14px;
+    }
+    
+    .country-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: #1d9bf0;
+      border-radius: 16px;
+      font-size: 13px;
+      color: white;
+    }
+    
+    .country-tag-remove {
+      cursor: pointer;
+      font-weight: bold;
+      opacity: 0.8;
+    }
+    
+    .country-tag-remove:hover {
+      opacity: 1;
+    }
+    
+    .stats {
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      background: #273340;
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+    
+    .stat {
+      flex: 1;
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      color: #71767b;
+      margin-bottom: 4px;
+    }
+    
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: #e7e9ea;
+    }
+    
+    .clear-cache-btn {
+      width: 100%;
+      padding: 12px;
+      background: #273340;
+      border: 1px solid #2f3336;
+      border-radius: 8px;
+      color: #e7e9ea;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    
+    .clear-cache-btn:hover {
+      background: #1e2732;
+      border-color: #1d9bf0;
+    }
+    
+    /* Scrollbar styles */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+      background: #273340;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+      background: #2f3336;
+      border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3f4346;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🌍 X Geography Filter</h1>
+  </div>
+  
+  <div class="content">
+    <div class="section">
+      <div class="section-title">Filter Countries</div>
+      <div class="search-box">
+        <input 
+          type="text" 
+          id="country-search" 
+          placeholder="Search countries to filter..."
+          autocomplete="off"
+        >
+        <div id="suggestions" class="suggestions"></div>
+      </div>
+      <div id="filtered-countries" class="filtered-countries empty"></div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Statistics</div>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Cached Users</div>
+          <div class="stat-value" id="cached-count">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Filtered Posts</div>
+          <div class="stat-value" id="filtered-count">0</div>
+        </div>
+      </div>
+      <button class="clear-cache-btn" id="clear-cache">Clear Cache</button>
+    </div>
+  </div>
+  
+  <script src="utils/iso-countries.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
