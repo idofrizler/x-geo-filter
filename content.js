@@ -84,33 +84,42 @@ function processExistingUsers() {
 
 // Find all user elements on the page
 function findUserElements() {
-  const selectors = [
-    // Username links in tweets
-    'a[href^="/"][href*="/status/"] div[dir="ltr"] > span',
-    // User profile links
-    'a[role="link"][href^="/"][data-testid="User-Name"]',
-    // Tweet author names
-    'div[data-testid="User-Name"] a[role="link"]',
-    // Reply author names
-    'div[data-testid="tweet"] div[data-testid="User-Name"]',
-    // Conversation participants
-    'article div[data-testid="User-Name"]'
-  ];
-  
   const elements = [];
+  const seenSpans = new Set(); // Prevent duplicates
   
-  // Find all username links (more reliable selector)
+  // Strategy 1: Find all @username spans in User-Name containers
+  // This covers: tweets, replies, quoted tweets, profile pages
+  const userNameContainers = document.querySelectorAll('[data-testid="User-Name"]');
+  userNameContainers.forEach(container => {
+    // Find all spans with @username
+    const spans = container.querySelectorAll('span');
+    spans.forEach(span => {
+      const text = span.textContent;
+      // Match @username format exactly
+      if (text && text.match(/^@[a-zA-Z0-9_]+$/)) {
+        if (!seenSpans.has(span)) {
+          seenSpans.add(span);
+          elements.push(span);
+        }
+      }
+    });
+  });
+  
+  // Strategy 2: Fallback - Find @username spans in links
+  // This catches any that might be outside User-Name containers
   const links = document.querySelectorAll('a[role="link"][href^="/"]');
   links.forEach(link => {
     const href = link.getAttribute('href');
-    // Match pattern: /<username> or /<username>/status/...
-    if (href && href.match(/^\/[a-zA-Z0-9_]+(?:\/|$)/)) {
-      // Check if this is a username container
+    // Match pattern: /<username> (but not /i/, /home, etc.)
+    if (href && href.match(/^\/[a-zA-Z0-9_]+$/)) {
       const spans = link.querySelectorAll('span');
       spans.forEach(span => {
         const text = span.textContent;
-        if (text && text.startsWith('@')) {
-          elements.push(span);
+        if (text && text.match(/^@[a-zA-Z0-9_]+$/)) {
+          if (!seenSpans.has(span)) {
+            seenSpans.add(span);
+            elements.push(span);
+          }
         }
       });
     }
@@ -234,7 +243,7 @@ async function processQueue() {
     
   } catch (error) {
     if (error.message.includes('RATE_LIMIT')) {
-      console.warn(`[Geo Filter] Rate limit hit, cooling down for ${RATE_LIMIT_COOLDOWN}ms`);
+      console.log(`[Geo Filter] Rate limit reached, cooling down for ${RATE_LIMIT_COOLDOWN / 1000}s`);
       rateLimitCooldown = true;
       
       // Put item back in queue
@@ -243,6 +252,7 @@ async function processQueue() {
       // Schedule cooldown end
       setTimeout(() => {
         rateLimitCooldown = false;
+        console.log('[Geo Filter] Cooldown complete, resuming requests');
         processQueue();
       }, RATE_LIMIT_COOLDOWN);
     } else {
@@ -373,8 +383,58 @@ function setupMutationObserver() {
     subtree: true
   });
   
-  console.log('[Geo Filter] Mutation observer set up');
+  // console.log('[Geo Filter] Mutation observer set up');
 }
+
+// Cleanup function to stop all processing
+function cleanup() {
+  // console.log('[Geo Filter] Cleaning up - stopping all pending requests');
+  
+  // Clear the pending queue
+  pendingQueue = [];
+  
+  // Reject all pending requests
+  pendingRequests.forEach((pending, requestId) => {
+    pending.reject(new Error('Page navigation - request cancelled'));
+  });
+  pendingRequests.clear();
+  
+  // Clear processing sets
+  processingQueue.clear();
+  
+  // Reset counters
+  activeRequests = 0;
+  rateLimitCooldown = false;
+}
+
+// Listen for page unload/navigation
+window.addEventListener('beforeunload', cleanup);
+window.addEventListener('pagehide', cleanup);
+
+// Also listen for visibility changes (tab switches)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // console.log('[Geo Filter] Page hidden - pausing queue processing');
+    // Don't clear everything, just stop processing new items
+    // Queue will resume when page becomes visible again
+  }
+});
+
+// Detect SPA navigation (URL changes without page reload)
+let lastUrl = location.href;
+new MutationObserver(() => {
+  const currentUrl = location.href;
+  if (currentUrl !== lastUrl) {
+    lastUrl = currentUrl;
+    // console.log('[Geo Filter] Navigation detected, cleaning up pending requests');
+    cleanup();
+    
+    // Reinitialize after a short delay to process new page
+    setTimeout(() => {
+      processExistingUsers();
+    }, 1000);
+  }
+}).observe(document, { subtree: true, childList: true });
 
 // Flag conversion function is now loaded from utils/iso-countries.js
 // The getCountryFlag() function is available globally

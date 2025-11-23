@@ -29,7 +29,7 @@
     // Replace headers completely to ensure we get auth tokens
     xcomHeaders = headerObj;
     headersReady = true;
-    console.log('[Geo Filter Page Script] Captured X.com headers:', Object.keys(headerObj));
+    // console.log('[Geo Filter Page Script] Captured X.com headers:', Object.keys(headerObj));
   }
   
   // Intercept fetch to capture X.com's headers
