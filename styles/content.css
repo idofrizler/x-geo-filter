@@ -1,0 +1,20 @@
+/* Styles for geography filter labels */
+
+.geo-filter-label {
+  margin-left: 4px;
+  font-size: 14px;
+  color: #536471;
+  display: inline;
+  vertical-align: baseline;
+}
+
+/* Make flags slightly smaller and consistent */
+.geo-filter-label:not(:empty) {
+  line-height: 1;
+}
+
+/* Ensure proper spacing in different contexts */
+.geo-filter-label::before {
+  content: ' ';
+  white-space: pre;
+}
