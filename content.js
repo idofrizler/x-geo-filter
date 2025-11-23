@@ -1,7 +1,5 @@
 // Content script for X.com to detect and annotate users with geography flags
-
-// Import flag utility (will be loaded via manifest)
-// Note: We'll need to include flags.js in the manifest content_scripts
+// Uses page script injection to capture X.com's auth headers
 
 const PROCESSED_ATTRIBUTE = 'data-geo-processed';
 const GEO_LABEL_CLASS = 'geo-filter-label';
@@ -17,15 +15,64 @@ let activeRequests = 0;
 let rateLimitCooldown = false;
 let pendingQueue = [];
 
+// Page script state
+let injectedScriptReady = false;
+let pendingRequests = new Map(); // requestId -> { resolve, reject, username }
+let requestIdCounter = 0;
+
+// Inject the page script
+function injectPageScript() {
+  const script = document.createElement('script');
+  script.src = chrome.runtime.getURL('pageScript.js');
+  script.onload = function() {
+    this.remove();
+  };
+  (document.head || document.documentElement).appendChild(script);
+  console.log('[Geo Filter] Injected page script');
+}
+
+// Listen for messages from page script
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
+  
+  const message = event.data;
+  
+  // Check if page script is ready
+  if (message.type === 'GEO_FILTER_INJECTED_READY') {
+    injectedScriptReady = true;
+    console.log('[Geo Filter] Page script ready');
+    return;
+  }
+  
+  // Handle fetch responses
+  if (message.type === 'GEO_FILTER_FETCH_RESPONSE') {
+    const { requestId, username, location, success, error } = message;
+    
+    const pending = pendingRequests.get(requestId);
+    if (pending) {
+      pendingRequests.delete(requestId);
+      
+      if (success) {
+        pending.resolve(location);
+      } else {
+        pending.reject(new Error(error || 'Unknown error'));
+      }
+    }
+  }
+});
+
 // Initialize the extension
 function init() {
   console.log('[Geo Filter] Extension initialized');
   
-  // Process existing content
-  processExistingUsers();
+  // Inject page script
+  injectPageScript();
   
-  // Set up mutation observer for dynamic content
-  setupMutationObserver();
+  // Wait for page script to load, then process
+  setTimeout(() => {
+    processExistingUsers();
+    setupMutationObserver();
+  }, 1000);
 }
 
 // Process all visible users on the page
@@ -225,79 +272,46 @@ function addGeoLabelToAllElements(username, geoData) {
   });
 }
 
-// Extract authorization token from page's JavaScript
-function getAuthToken() {
-  // Try to find the bearer token in the page's main.js bundle
-  // X.com includes it in their web app code
-  const scripts = document.querySelectorAll('script');
-  for (const script of scripts) {
-    const content = script.textContent || script.innerText;
-    // Look for Bearer token pattern
-    const match = content.match(/Bearer\s+([A-Za-z0-9%]+)/);
-    if (match && match[1].length > 100) {
-      return `Bearer ${match[1]}`;
+// Fetch user geography via page script (uses X.com's own auth headers)
+function fetchUserGeo(username) {
+  return new Promise((resolve, reject) => {
+    // Wait for page script to be ready
+    if (!injectedScriptReady) {
+      const checkReady = setInterval(() => {
+        if (injectedScriptReady) {
+          clearInterval(checkReady);
+          fetchUserGeo(username).then(resolve).catch(reject);
+        }
+      }, 100);
+      
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        clearInterval(checkReady);
+        reject(new Error('Page script not ready'));
+      }, 5000);
+      return;
     }
-  }
-  
-  // Fallback: use the known public token (may need updating if X changes it)
-  // This is X.com's public web API token - it's publicly available in their web app
-  return 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
-}
-
-// Fetch user geography from X.com API
-async function fetchUserGeo(username) {
-  const API_URL = 'https://x.com/i/api/graphql/XRqGa7EeokUU5kppkh13EA/AboutAccountQuery';
-  const variables = { screenName: username };
-  const url = `${API_URL}?variables=${encodeURIComponent(JSON.stringify(variables))}`;
-  
-  // Get CSRF token from cookies
-  const csrfToken = document.cookie.split('; ')
-    .find(row => row.startsWith('ct0='))
-    ?.split('=')[1];
-  
-  // Get authorization token from page (extracted dynamically)
-  const authToken = getAuthToken();
-  
-  const headers = {
-    'Accept': '*/*',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'X-Twitter-Active-User': 'yes',
-    'X-Twitter-Client-Language': 'en',
-    'authorization': authToken
-  };
-  
-  if (csrfToken) {
-    headers['x-csrf-token'] = csrfToken;
-  }
-  
-  const response = await fetch(url, {
-    method: 'GET',
-    credentials: 'include',
-    headers: headers
+    
+    const requestId = ++requestIdCounter;
+    
+    // Store the promise handlers
+    pendingRequests.set(requestId, { resolve, reject, username });
+    
+    // Send message to page script
+    window.postMessage({
+      type: 'GEO_FILTER_FETCH_USER',
+      username: username,
+      requestId: requestId
+    }, '*');
+    
+    // Timeout after 10 seconds
+    setTimeout(() => {
+      if (pendingRequests.has(requestId)) {
+        pendingRequests.delete(requestId);
+        reject(new Error('Request timeout'));
+      }
+    }, 10000);
   });
-
-  if (!response.ok) {
-    if (response.status === 429) {
-      throw new Error('RATE_LIMIT: Too many requests. Please wait before trying again.');
-    }
-    if (response.status === 403) {
-      throw new Error('AUTHENTICATION: Unable to authenticate with X.com API. Make sure you are logged in to X.com.');
-    }
-    throw new Error(`API returned status ${response.status}`);
-  }
-
-  const data = await response.json();
-  
-  // Extract location from response
-  const userResult = data?.data?.user_result_by_screen_name?.result;
-  
-  if (!userResult || userResult.__typename === 'UserUnavailable') {
-    return 'N/A';
-  }
-
-  const location = userResult?.about_profile?.account_based_in;
-  
-  return location || 'N/A';
 }
 
 // Add geography label next to username
